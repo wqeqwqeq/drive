@@ -29,8 +29,8 @@ class ADFOperations:
             (self.token_expiry is not None and now >= self.token_expiry)):
             token_response = self.credential.get_token("https://management.azure.com/.default")
             self.token = token_response.token
-            # Set expiry to 5 minutes before actual expiry to be safe
-            self.token_expiry = now + timedelta(seconds=token_response.expires_in - 300)
+            # Convert expires_on (Unix timestamp) to datetime
+            self.token_expiry = datetime.fromtimestamp(token_response.expires_on) - timedelta(minutes=5)
         return self.token
 
     def get_integration_runtime_status(self, ir_name):
