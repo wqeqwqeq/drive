@@ -66,13 +66,51 @@ class ADFOperations:
             print(f"Error enabling interactive authoring: {str(e)}")
             raise
 
-    def test_linked_service_connection(self, linked_service_name):
+
+    def get_linked_service_details(self, linked_service_name):
+        """
+        Get the details of a linked service
+        """
+        try:
+            # Get access token
+            token = self.credential.get_token("https://management.azure.com/.default").token
+            
+            # Construct the API URL
+            api_url = f"https://management.azure.com/subscriptions/{self.subscription_id}/resourcegroups/{self.resource_group_name}/providers/Microsoft.DataFactory/factories/{self.factory_name}/linkedservices/{linked_service_name}?api-version=2018-06-01"
+            
+            # Make the API call
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+            
+            response = requests.get(api_url, headers=headers)
+            response.raise_for_status()
+            
+            return response.json()
+        except Exception as e:
+            print(f"Error getting linked service details: {str(e)}")
+            raise
+
+    def test_linked_service_connection(self, linked_service_name, parameters=None):
         """
         Test the connection of a linked service
         """
         try:
             # Get access token
             token = self.credential.get_token("https://management.azure.com/.default").token
+            
+            # First get the linked service details
+            linked_service = self.get_linked_service_details(linked_service_name)
+            
+            # If parameters are provided, update the linked service properties
+            if parameters:
+                linked_service["properties"]["parameters"] = parameters
+            
+            # Construct the test connectivity request body
+            body = {
+                "linkedService": linked_service
+            }
             
             # Construct the API URL
             api_url = f"https://management.azure.com/subscriptions/{self.subscription_id}/resourcegroups/{self.resource_group_name}/providers/Microsoft.DataFactory/factories/{self.factory_name}/testConnectivity?api-version=2018-06-01"
@@ -82,9 +120,9 @@ class ADFOperations:
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json"
             }
-            body = {
-                "linkedServiceName": linked_service_name
-            }
+            
+            print("Testing linked service connection with the following configuration:")
+            print(json.dumps(body, indent=2))
             
             response = requests.post(api_url, headers=headers, json=body)
             response.raise_for_status()
