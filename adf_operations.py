@@ -2,6 +2,7 @@ from azure.identity import DefaultAzureCredential
 from azure.mgmt.datafactory import DataFactoryManagementClient
 import requests
 import time
+import json
 
 class ADFOperations:
     def __init__(self, subscription_id, resource_group_name, factory_name):
@@ -13,6 +14,38 @@ class ADFOperations:
             credential=self.credential,
             subscription_id=subscription_id
         )
+
+    def get_integration_runtime_status(self, ir_name):
+        """
+        Get the status of an integration runtime
+        Returns True if interactive authoring is enabled, False otherwise
+        """
+        try:
+            # Get access token
+            token = self.credential.get_token("https://management.azure.com/.default").token
+            
+            # Construct the API URL
+            ir_resource_id = f"subscriptions/{self.subscription_id}/resourcegroups/{self.resource_group_name}/providers/Microsoft.DataFactory/factories/{self.factory_name}/integrationruntimes/{ir_name}"
+            api_url = f"https://management.azure.com/{ir_resource_id}/getStatus?api-version=2018-06-01"
+            
+            # Make the API call
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+            
+            response = requests.post(api_url, headers=headers)
+            response.raise_for_status()
+            
+            status_data = response.json()
+            interactive_status = status_data.get("properties", {}).get("typeProperties", {}).get("interactiveQuery", {}).get("status")
+            
+            is_enabled = interactive_status == "Enabled"
+            print(f"Integration runtime {ir_name} interactive authoring status: {'Enabled' if is_enabled else 'Disabled'}")
+            return is_enabled
+        except Exception as e:
+            print(f"Error getting integration runtime status: {str(e)}")
+            raise
 
     def update_managed_private_endpoint_fqdn(self, managed_vnet_name, managed_private_endpoint_name, fqdns, group_id, private_link_resource_id):
         """
@@ -43,6 +76,11 @@ class ADFOperations:
         Enable interactive authoring for the specified integration runtime
         """
         try:
+            # First check if interactive authoring is already enabled
+            if self.get_integration_runtime_status(ir_name):
+                print(f"Interactive authoring is already enabled for integration runtime {ir_name}")
+                return
+            
             # Get access token
             token = self.credential.get_token("https://management.azure.com/.default").token
             
@@ -61,11 +99,17 @@ class ADFOperations:
             response.raise_for_status()
             
             print(f"Successfully enabled interactive authoring for {minutes} minutes")
+            
+            # Verify the status after enabling
+            if self.get_integration_runtime_status(ir_name):
+                print("Interactive authoring was successfully enabled")
+            else:
+                print("Warning: Interactive authoring status check failed after enabling")
+            
             return response.json()
         except Exception as e:
             print(f"Error enabling interactive authoring: {str(e)}")
             raise
-
 
     def get_linked_service_details(self, linked_service_name):
         """
@@ -164,8 +208,14 @@ def main():
         )
         
         # 3. Test linked service connection
+        # You can optionally provide parameters for the linked service
+        parameters = {
+            "param1": "value1",
+            "param2": "value2"
+        }
         adf_ops.test_linked_service_connection(
-            linked_service_name="your-linked-service-name"
+            linked_service_name="your-linked-service-name",
+            parameters=parameters  # Optional
         )
         
     except Exception as e:
