@@ -9,8 +9,8 @@ load_dotenv()
 
 # Set page configuration
 st.set_page_config(
-    page_title="H1B Data Chat Assistant",
-    page_icon="🤖",
+    page_title="Vehicle Sales Chat Assistant",
+    page_icon="🚗",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -98,14 +98,14 @@ def display_chat_message(role, message, sql_query=None):
 
 def main():
     # Header
-    st.title("🤖 H1B Data Chat Assistant")
-    st.markdown("Ask questions about H1B visa data in natural language!")
+    st.title("🚗 Vehicle Sales Chat Assistant")
+    st.markdown("Ask questions about vehicle sales data for CMX in natural language!")
     
     # Sidebar with information
     with st.sidebar:
         st.header("ℹ️ About")
         st.markdown("""
-        This chat assistant helps you explore H1B visa data using natural language queries.
+        This chat assistant helps you explore vehicle sales data for CMX using natural language queries.
         
         **Features:**
         - 🔍 Natural language to SQL conversion
@@ -114,9 +114,9 @@ def main():
         - 📈 Data insights and analysis
         
         **Example Questions:**
-        - "What's the average salary for software engineers?"
-        - "Show me top 5 companies by H1B applications"
-        - "How many applications were filed in 2024?"
+        - "What's the average price for a used car?"
+        - "Show me top 5 models by sales"
+        - "How many sales were in 2024?"
         """)
         
         st.header("🔧 System Status")
@@ -154,7 +154,7 @@ def main():
         # Add welcome message
         st.session_state.messages.append({
             "role": "assistant",
-            "content": "Hello! I'm your H1B data assistant. Ask me anything about H1B visa applications, salaries, companies, or trends. What would you like to know?",
+            "content": "Hello! I'm your vehicle sales assistant for CMX data. Ask me anything about vehicle sales, prices, models, or trends. What would you like to know?",
             "sql_query": None
         })
     
@@ -169,7 +169,7 @@ def main():
             )
     
     # Chat input
-    user_input = st.chat_input("Ask a question about H1B data...")
+    user_input = st.chat_input("Ask a question about vehicle sales data...")
     
     if user_input:
         # Add user message to chat history
@@ -210,7 +210,7 @@ def main():
             st.session_state.messages = []
             st.session_state.messages.append({
                 "role": "assistant",
-                "content": "Chat cleared! What would you like to know about H1B data?",
+                "content": "Chat cleared! What would you like to know about vehicle sales data for CMX?",
                 "sql_query": None
             })
             st.rerun()
@@ -220,11 +220,11 @@ def main():
     st.subheader("💡 Try these example questions:")
     
     example_questions = [
-        "What's the average salary for software engineers in 2024?",
-        "Show me the top 5 companies by number of H1B applications",
-        "How many H1B applications were filed for data scientist positions?",
-        "What are the salary trends for engineers at Google?",
-        "Which states have the highest H1B application counts?"
+        "What's the average price for vehicles sold in 2024?",
+        "Show me the top 5 vehicle models by sales volume",
+        "How many vehicles were sold this year?",
+        "What are the price trends for sedans?",
+        "Which vehicle models have the highest average selling price?"
     ]
     
     cols = st.columns(2)
