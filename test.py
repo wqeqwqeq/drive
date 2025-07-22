@@ -292,23 +292,7 @@ class PowerBIClient(BaseAzureClient):
                 print(f"Response: {response.text}")
                 response.raise_for_status()
 
-    def _get_gateway_id(self, provided_gateway_id):
-        """
-        Get gateway ID using fallback logic
-        
-        Args:
-            provided_gateway_id (str or None): Gateway ID provided to method
-            
-        Returns:
-            str: Gateway ID to use
-            
-        Raises:
-            ValueError: If no gateway ID is available
-        """
-        gateway_id = provided_gateway_id or self.gateway_id
-        if not gateway_id:
-            raise ValueError("No gateway_id provided. Either pass gateway_id parameter or set default gateway_id in PowerBIClient.__init__()")
-        return gateway_id
+
 
     def get_gateway(self, gateway_id=None):
         """
@@ -324,7 +308,7 @@ class PowerBIClient(BaseAzureClient):
             print("No token available for getting gateway")
             return None
         
-        gateway_id = self._get_gateway_id(gateway_id)
+        gateway_id = self.gateway_id
         url = f"https://api.powerbi.com/v1.0/myorg/gateways/{gateway_id}"
         response = requests.get(url, headers=self.headers)
         
@@ -394,7 +378,7 @@ class PowerBIClient(BaseAzureClient):
         
         try:
             # Get gateway information
-            gateway_id = self._get_gateway_id(gateway_id)
+            gateway_id = self.gateway_id
             gateway_info = self.get_gateway(gateway_id)
             if not gateway_info:
                 raise Exception("Failed to retrieve gateway information")
