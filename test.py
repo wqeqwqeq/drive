@@ -9,6 +9,8 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import serialization, hmac
+from cryptography.hazmat.backends import default_backend
+import time
 
 akv = KeyVaultClient("kmxdapeaihubstg")
 client_id = akv.get_secret_value_if_exists("fabric-spn-client-id")
@@ -21,6 +23,8 @@ class PowerBIGatewayEncryptor:
     
     MODULUS_SIZE_1024 = 128
     SEGMENT_SIZE = 60  # For 1024-bit keys
+    ENCRYPTED_LENGTH = 128  # For 1024-bit keys
+    MAX_ATTEMPTS = 3
     
     def __init__(self, gateway_public_key):
         """
@@ -55,35 +59,72 @@ class PowerBIGatewayEncryptor:
             return self._encrypt_higher_bit(plain_text_bytes, modulus_bytes, exponent_bytes)
     
     def _encrypt_1024_bit(self, plain_text_bytes, modulus_bytes, exponent_bytes):
-        """Encrypt using segment-based RSA-OAEP for 1024-bit keys"""
-        # Reconstruct RSA public key
-        modulus_int = int.from_bytes(modulus_bytes, byteorder='big')
-        exponent_int = int.from_bytes(exponent_bytes, byteorder='big')
+        """Encrypt using segment-based RSA-OAEP for 1024-bit keys - matches Microsoft implementation"""
+        # Calculate segments like Microsoft implementation
+        has_incomplete_segment = len(plain_text_bytes) % self.SEGMENT_SIZE != 0
+        segment_number = (len(plain_text_bytes) // self.SEGMENT_SIZE)
+        if has_incomplete_segment:
+            segment_number += 1
         
-        public_key = rsa.RSAPublicNumbers(exponent_int, modulus_int).public_key()
+        # Create a byte array for encrypted bytes
+        encrypted_bytes = bytearray([0] * (segment_number * self.ENCRYPTED_LENGTH))
         
-        # Split data into segments
-        segments = []
-        for i in range(0, len(plain_text_bytes), self.SEGMENT_SIZE):
-            segment = plain_text_bytes[i:i + self.SEGMENT_SIZE]
-            segments.append(segment)
+        # Process each segment
+        for i in range(segment_number):
+            # Determine segment length
+            if i == segment_number - 1 and has_incomplete_segment:
+                length_to_copy = len(plain_text_bytes) % self.SEGMENT_SIZE
+            else:
+                length_to_copy = self.SEGMENT_SIZE
+            
+            # Extract segment
+            start_pos = i * self.SEGMENT_SIZE
+            segment = plain_text_bytes[start_pos:start_pos + length_to_copy]
+            
+            # Encrypt segment with retry logic
+            segment_encrypted_result = self._encrypt_segment(modulus_bytes, exponent_bytes, segment)
+            
+            # Copy encrypted result to final array
+            start_index = i * self.ENCRYPTED_LENGTH
+            for j, byte_val in enumerate(segment_encrypted_result):
+                encrypted_bytes[start_index + j] = byte_val
         
-        # Encrypt each segment
-        encrypted_segments = []
-        for segment in segments:
-            encrypted_segment = public_key.encrypt(
-                segment,
-                padding.OAEP(
-                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                    algorithm=hashes.SHA256(),
-                    label=None
+        return base64.b64encode(encrypted_bytes).decode('utf-8')
+    
+    def _encrypt_segment(self, modulus_bytes, exponent_bytes, data):
+        """Encrypt a single segment with retry logic"""
+        if not data:
+            raise TypeError('Data is null')
+        
+        # Retry logic like Microsoft implementation
+        for attempt in range(self.MAX_ATTEMPTS):
+            try:
+                # Convert exponent and modulus byte arrays to integer
+                exponent = int.from_bytes(exponent_bytes, 'big')
+                modulus = int.from_bytes(modulus_bytes, 'big')
+                
+                # Generate public key with explicit backend
+                public_key = rsa.RSAPublicNumbers(exponent, modulus).public_key(default_backend())
+                
+                # Encrypt the data using OAEP padding
+                encrypted_bytes = public_key.encrypt(
+                    bytes(data),
+                    padding.OAEP(
+                        mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                        algorithm=hashes.SHA256(),
+                        label=None
+                    )
                 )
-            )
-            encrypted_segments.append(encrypted_segment)
+                
+                return encrypted_bytes
+                
+            except Exception as ex:
+                # Sleep for 50 milliseconds like Microsoft implementation
+                time.sleep(0.05)
+                if attempt == self.MAX_ATTEMPTS - 1:
+                    raise Exception(f"Encryption failed after {self.MAX_ATTEMPTS} attempts: {ex}")
         
-        # Combine all encrypted segments
-        combined_encrypted = b''.join(encrypted_segments)
-        return base64.b64encode(combined_encrypted).decode('utf-8')
+        raise Exception("Invalid Operation")
     
     def _encrypt_higher_bit(self, plain_text_bytes, modulus_bytes, exponent_bytes):
         """Encrypt using hybrid AES+RSA for higher bit keys"""
@@ -171,10 +212,16 @@ class BaseAzureClient:
 
 
 class PowerBIClient(BaseAzureClient):
-    def __init__(self):
-        """Initialize Power BI client and get authentication token"""
+    def __init__(self, gateway_id=None):
+        """Initialize Power BI client and get authentication token
+        
+        Args:
+            gateway_id (str, optional): Default gateway ID to use for operations.
+                                      If provided, methods can omit gateway_id parameter.
+        """
         # Initialize base class with Power BI scope
         super().__init__("https://analysis.windows.net/powerbi/api/.default")
+        self.gateway_id = gateway_id
 
     def upload_report(
         self, workspace_id, file_path, name_conflict, dataset_display_name
@@ -245,12 +292,30 @@ class PowerBIClient(BaseAzureClient):
                 print(f"Response: {response.text}")
                 response.raise_for_status()
 
-    def get_gateway(self, gateway_id):
+    def _get_gateway_id(self, provided_gateway_id):
+        """
+        Get gateway ID using fallback logic
+        
+        Args:
+            provided_gateway_id (str or None): Gateway ID provided to method
+            
+        Returns:
+            str: Gateway ID to use
+            
+        Raises:
+            ValueError: If no gateway ID is available
+        """
+        gateway_id = provided_gateway_id or self.gateway_id
+        if not gateway_id:
+            raise ValueError("No gateway_id provided. Either pass gateway_id parameter or set default gateway_id in PowerBIClient.__init__()")
+        return gateway_id
+
+    def get_gateway(self, gateway_id=None):
         """
         Get gateway information including public key
         
         Args:
-            gateway_id (str): Gateway ID
+            gateway_id (str, optional): Gateway ID. If not provided, uses default gateway_id from initialization.
             
         Returns:
             dict: Gateway information
@@ -259,6 +324,7 @@ class PowerBIClient(BaseAzureClient):
             print("No token available for getting gateway")
             return None
         
+        gateway_id = self._get_gateway_id(gateway_id)
         url = f"https://api.powerbi.com/v1.0/myorg/gateways/{gateway_id}"
         response = requests.get(url, headers=self.headers)
         
@@ -305,12 +371,11 @@ class PowerBIClient(BaseAzureClient):
         else:
             raise ValueError(f"Unsupported credential type: {credential_type}")
 
-    def create_datasource(self, gateway_id, datasource_config):
+    def create_datasource(self, datasource_config, gateway_id=None):
         """
         Create a new datasource in the gateway with encrypted credentials
         
         Args:
-            gateway_id (str): Gateway ID
             datasource_config (dict): Datasource configuration containing:
                 - dataSourceType (str): Type of datasource (e.g., "SQL")
                 - connectionDetails (str): JSON string with connection details
@@ -318,6 +383,7 @@ class PowerBIClient(BaseAzureClient):
                 - credentialType (str): Type of credentials (Basic, Windows, Key)
                 - credentials (dict): Credential data
                 - privacyLevel (str, optional): Privacy level (None, Organizational, Private, Public)
+            gateway_id (str, optional): Gateway ID. If not provided, uses default gateway_id from initialization.
                 
         Returns:
             dict: API response with created datasource information
@@ -328,6 +394,7 @@ class PowerBIClient(BaseAzureClient):
         
         try:
             # Get gateway information
+            gateway_id = self._get_gateway_id(gateway_id)
             gateway_info = self.get_gateway(gateway_id)
             if not gateway_info:
                 raise Exception("Failed to retrieve gateway information")
@@ -347,9 +414,13 @@ class PowerBIClient(BaseAzureClient):
             encrypted_credentials = encryptor.encrypt_credentials(credentials_json)
             
             # Prepare request body
+            connection_details = datasource_config['connectionDetails']
+            if isinstance(connection_details, dict):
+                connection_details = json.dumps(connection_details)
+                
             request_body = {
                 "dataSourceType": datasource_config['dataSourceType'],
-                "connectionDetails": datasource_config['connectionDetails'],
+                "connectionDetails": connection_details,
                 "datasourceName": datasource_config['datasourceName'],
                 "credentialDetails": {
                     "credentialType": datasource_config['credentialType'],
