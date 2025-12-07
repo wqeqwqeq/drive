@@ -47,6 +47,18 @@ class TableauServerWrapper:
         self.server.workbooks.populate_views(workbook)
         return list(workbook.views)
 
+    def download_view_csv_by_id(self, view_id: str, filepath: str = None) -> bytes:
+        """Download a view's data as CSV."""
+        view = self.server.views.get_by_id(view_id)
+        self.server.views.populate_csv(view)
+        csv_data = b"".join(view.csv)
+
+        if filepath:
+            with open(filepath, "wb") as f:
+                f.write(csv_data)
+
+        return csv_data
+
     def download_view_image_by_id(self, view_id: str, filepath: str = None) -> bytes:
         """Download a view as an image."""
         view = self.server.views.get_by_id(view_id)
