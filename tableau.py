@@ -12,6 +12,7 @@ class TableauServerWrapper:
         self.site_id = site_id
         self.server = TSC.Server(server_url, use_server_version=True)
         self._auth = None
+        self.sign_in()
 
     def sign_in(self):
         """Sign in using PAT or username/password based on env config."""
@@ -58,12 +59,19 @@ class TableauServerWrapper:
 
         return image_data
 
-    def download_workbook_by_id(self, workbook_id: str, filepath: str = None) -> str:
-        """Download a workbook file."""
+    def download_workbook_by_id(self, workbook_id: str, filepath: str = None, format: str = "twbx"):
+        """Download a workbook file. Format: 'twbx' or 'pdf'."""
+        if format == "pdf":
+            workbook = self.server.workbooks.get_by_id(workbook_id)
+            self.server.workbooks.populate_pdf(workbook)
+            pdf_data = workbook.pdf
+            if filepath:
+                with open(filepath, "wb") as f:
+                    f.write(pdf_data)
+            return pdf_data
         return self.server.workbooks.download(workbook_id, filepath)
 
     def __enter__(self):
-        self.sign_in()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
